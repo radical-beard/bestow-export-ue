@@ -27,7 +27,9 @@ namespace
 			OutError = TEXT("BestowExport plugin not found by the plugin manager");
 			return FString();
 		}
-		const FString Path = Plugin->GetBaseDir() / TEXT("templates/terrain_baked.slang");
+		// Resources/ because Epic's BuildPlugin packaging stages only the
+		// standard plugin folders — a bare templates/ dir would be dropped.
+		const FString Path = Plugin->GetBaseDir() / TEXT("Resources/templates/terrain_baked.slang");
 		FString Template;
 		if (!FFileHelper::LoadFileToString(Template, *Path))
 		{

@@ -211,11 +211,21 @@ FString SBestowExportPanel::ReadinessNote() const
 	{
 		return TEXT("Link your bestow game above first — every button waits on it.");
 	}
+	// every grey button gets its reason here — the guide promises that
+	FString Notes;
 	if (!CanExportTerrain())
 	{
-		return TEXT("Terrain needs a Landscape in the level. Mesh export needs selected actors.");
+		Notes += TEXT("Terrain needs a Landscape in the level. ");
 	}
-	return TEXT("Heights, painted layers, placements and animation data export exactly as authored.");
+	if (!CanExportMesh())
+	{
+		Notes += TEXT("Mesh export needs selected actors — click something in the level first. ");
+	}
+	if (Notes.IsEmpty())
+	{
+		return TEXT("Heights, painted layers, placements and animation data export exactly as authored.");
+	}
+	return Notes.TrimEnd();
 }
 
 FString SBestowExportPanel::ExportName() const

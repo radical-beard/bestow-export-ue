@@ -9,7 +9,8 @@
 	"CreatedByURL": "https://github.com/radical-beard",
 	"CanContainContent": false,
 	"IsBetaVersion": false,
-	"Installed": false,
+	"Installed": true,
+	"EnabledByDefault": true,
 	"Modules": [
 		{
 			"Name": "BestowExportEditor",
