@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.7",
+	"Category": "",
+	"Description": "Development host for the BestowExport plugin (the plugin is the product; this project exists to compile and self-test it).",
+	"Modules": [
+		{
+			"Name": "BestowHost",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "BestowExport",
+			"Enabled": true
+		}
+	]
+}

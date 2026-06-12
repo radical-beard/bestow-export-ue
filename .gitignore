@@ -1,0 +1,10 @@
+# UE generated state — the plugin + minimal host sources are the repo
+HostProject/Binaries/
+HostProject/Intermediate/
+HostProject/Saved/
+HostProject/DerivedDataCache/
+HostProject/Content/
+HostProject/*.xcworkspace
+BestowExport/Binaries/
+BestowExport/Intermediate/
+.DS_Store

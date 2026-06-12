@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Bestow Export",
+	"Description": "One-button export of Unreal-authored content into the bestow engine's formats: Landscape terrain, actor placement, glb meshes, animation metadata (notifies, montage sections, sockets), and splines.",
+	"Category": "Exporters",
+	"CreatedBy": "radical-beard",
+	"CreatedByURL": "https://github.com/radical-beard",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BestowExportEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [ "Win64", "Mac", "Linux" ]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "GLTFExporter",
+			"Enabled": true
+		}
+	]
+}
