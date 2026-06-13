@@ -8,8 +8,12 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PointLightComponent.h"
+#include "Components/SceneComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/SplineComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Engine.h"
 #include "Engine/ExponentialHeightFog.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -92,6 +96,66 @@ namespace
 	}
 }
 
+namespace
+{
+	/// The entity snippet a model export drops next to its glb. One emitter
+	/// for both the plain mesh (origin, static collider) and the attachment
+	/// (grips a socket, no collider — it rides the bone). `Grip` is the item's
+	/// transform RELATIVE TO its socket, already in UE space; converted here.
+	FString BuildModelEntityToml(const FString& Name, const FString& ModelRel, bool bPhysics,
+		const FString* AttachSocket, const FTransform* Grip)
+	{
+		FString S;
+		if (AttachSocket)
+		{
+			S += FString::Printf(
+				TEXT("# `%s`: paste as a CHILD of your character's skeletal entity (set `parent`).\n")
+				TEXT("# It grips socket `%s`; the transform below is the grip, exported from Unreal.\n"),
+				*Name, **AttachSocket);
+		}
+		else
+		{
+			S += FString::Printf(
+				TEXT("# Paste into a scene to place `%s` (world placement is baked into the glb).\n"),
+				*Name);
+		}
+		S += TEXT("[[entities]]\n");
+		S += FString::Printf(TEXT("name = \"%s\"\n"), *BestowToml::Esc(Name));
+		if (AttachSocket)
+		{
+			S += TEXT("parent = \"player_model\"   # <- your character's skeletal entity\n");
+			S += FString::Printf(TEXT("attach_socket = \"%s\"\n"), *BestowToml::Esc(*AttachSocket));
+		}
+		S += TEXT("[entities.components.transform]\n");
+		if (Grip)
+		{
+			const FVector P = BestowConvert::Pos(Grip->GetLocation());
+			S += FString::Printf(TEXT("position = %s\n"), *BestowToml::V3(P.X, P.Y, P.Z));
+			const FVector E = BestowConvert::EulerXYZ(Grip->GetRotation());
+			if (!E.IsNearlyZero(1e-5))
+			{
+				S += FString::Printf(TEXT("rotation = %s\n"), *BestowToml::V3(E.X, E.Y, E.Z));
+			}
+			// bestow uses the same (X, Z, Y) axis order for scale.
+			const FVector Sc = Grip->GetScale3D();
+			if (!Sc.Equals(FVector::OneVector, 1e-3))
+			{
+				S += FString::Printf(TEXT("scale = %s\n"), *BestowToml::V3(Sc.X, Sc.Z, Sc.Y));
+			}
+		}
+		else
+		{
+			S += TEXT("position = [0.0, 0.0, 0.0]\n");
+		}
+		S += FString::Printf(TEXT("[entities.components.render]\nmodel = \"%s\"\n"), *ModelRel);
+		if (bPhysics)
+		{
+			S += TEXT("[entities.components.physics]\nbody = \"static\"\nshape = \"mesh\"\n");
+		}
+		return S;
+	}
+}
+
 // ── E2: selected actors → glb ────────────────────────────────────────────
 
 FBestowExportResult BestowExporters::ExportMesh(
@@ -134,13 +198,93 @@ FBestowExportResult BestowExporters::ExportMesh(
 
 	// The glb bakes world placement (level export), so the entity sits at
 	// the origin; move it in bestow via this transform if needed.
-	const FString Entity = FString::Printf(
-		TEXT("# Paste into a scene to place `%s` (world placement is baked into the glb).\n")
-		TEXT("[[entities]]\nname = \"%s\"\n")
-		TEXT("[entities.components.transform]\nposition = [0.0, 0.0, 0.0]\n")
-		TEXT("[entities.components.render]\nmodel = \"%s/%s.glb\"\n")
-		TEXT("[entities.components.physics]\nbody = \"static\"\nshape = \"mesh\"\n"),
-		*Name, *BestowToml::Esc(Name), *Prefix, *Name);
+	const FString ModelRel = FString::Printf(TEXT("%s/%s.glb"), *Prefix, *Name);
+	const FString Entity = BuildModelEntityToml(Name, ModelRel, /*bPhysics*/ true, nullptr, nullptr);
+	const FString EntityPath = Folder / FString::Printf(TEXT("%s.entity.toml"), *Name);
+	FString Err;
+	if (!BestowFiles::WriteAtomicText(EntityPath, Entity, Err))
+	{
+		return FBestowExportResult::Fail(Err);
+	}
+	Result.Files.Add(EntityPath);
+	Result.Files.Add(BestowFiles::EnsureSidecar(EntityPath));
+
+	Result.bOk = true;
+	Result.Folder = Folder;
+	Result.EntityToml = Entity;
+	return Result;
+}
+
+// ── E9: attached item (weapon / mask) → glb + grip ───────────────────────
+
+FBestowExportResult BestowExporters::ExportAttachment(
+	AActor* Item, const FString& GameRoot, const FString& RawName)
+{
+	USceneComponent* Root = Item ? Item->GetRootComponent() : nullptr;
+	if (!Root)
+	{
+		return FBestowExportResult::Fail(TEXT("Select the placed item actor (sword, mask…)."));
+	}
+	USkeletalMeshComponent* Skel = Cast<USkeletalMeshComponent>(Root->GetAttachParent());
+	const FName Socket = Root->GetAttachSocketName();
+	if (!Skel || Socket.IsNone())
+	{
+		return FBestowExportResult::Fail(
+			TEXT("Attach the item to a socket on the character's skeletal mesh first "
+				 "(drag it onto the character in the Outliner, pick a socket), then nudge it."));
+	}
+	UStaticMeshComponent* SMComp = Item->FindComponentByClass<UStaticMeshComponent>();
+	UStaticMesh* Mesh = SMComp ? SMComp->GetStaticMesh() : nullptr;
+	if (!Mesh)
+	{
+		return FBestowExportResult::Fail(
+			TEXT("The item has no static mesh to export (weapons/masks should be static meshes)."));
+	}
+
+	const FString Name = BestowToml::Stem(RawName);
+	const FString Folder = GameRoot / TEXT("assets/models") / Name;
+	IFileManager::Get().MakeDirectory(*Folder, true);
+	const FString GlbPath = Folder / FString::Printf(TEXT("%s.glb"), *Name);
+	const FString ModelRel = FString::Printf(TEXT("assets/models/%s/%s.glb"), *Name, *Name);
+
+	// Export the MESH ASSET (native origin), NOT the placed actor — the grip
+	// transform below is what positions it, so the glb must not bake the
+	// socket placement. The glTF exporter writes a UStaticMesh at its pivot.
+	UGLTFExportOptions* Options = NewObject<UGLTFExportOptions>();
+	Options->ResetToDefault();
+	FGLTFExportMessages Messages;
+	if (!UGLTFExporter::ExportToGLTF(Mesh, GlbPath, Options, {}, Messages))
+	{
+		const FString Why = FString::Join(Messages.Errors, TEXT("; "));
+		return FBestowExportResult::Fail(FString::Printf(
+			TEXT("glb export failed%s%s"), Why.IsEmpty() ? TEXT("") : TEXT(": "), *Why));
+	}
+
+	// The grip: the item's transform RELATIVE TO the socket it rides. Computed
+	// against the socket's WORLD transform (the bone's rest pose ∘ the socket
+	// offset) so it matches exactly what bestow re-applies against the live
+	// pose. bestow resolves the socket name (sidecar or bone, with retarget)
+	// and composes bone ∘ socket_offset ∘ this grip ∘ mesh.
+	const FTransform SocketWorld = Skel->GetSocketTransform(Socket, RTS_World);
+	const FTransform ItemWorld = Root->GetComponentTransform();
+	const FTransform Grip = ItemWorld.GetRelativeTransform(SocketWorld);
+
+	FBestowExportResult Result;
+	for (const FString& W : Messages.Warnings)
+	{
+		Result.Warnings.Add(W);
+	}
+	if (!Grip.GetScale3D().Equals(FVector::OneVector, 1e-3))
+	{
+		Result.Warnings.Add(TEXT("Item is scaled relative to the socket — the grip carries that "
+								 "scale; clear it on the actor if the glb already has the right size."));
+	}
+	Result.Files.Add(GlbPath);
+	Result.Files.Add(BestowFiles::EnsureSidecar(GlbPath));
+
+	const FString SocketName = Socket.ToString();
+	const FString Entity =
+		BuildModelEntityToml(Name, ModelRel, /*bPhysics*/ false, &SocketName, &Grip);
 	const FString EntityPath = Folder / FString::Printf(TEXT("%s.entity.toml"), *Name);
 	FString Err;
 	if (!BestowFiles::WriteAtomicText(EntityPath, Entity, Err))

@@ -7,10 +7,13 @@
 
 #include "BestowExportCore.h"
 #include "BestowExporters.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "DesktopPlatformModule.h"
 #include "Editor.h"
 #include "Engine/Selection.h"
 #include "EngineUtils.h"
+#include "GameFramework/Actor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "IDesktopPlatform.h"
@@ -85,6 +88,11 @@ void SBestowExportPanel::Construct(const FArguments& InArgs)
 			[
 				ExportButton(LOCTEXT("Mesh", "Export Selected as Mesh (.glb)"),
 					&SBestowExportPanel::OnExportMesh, &SBestowExportPanel::CanExportMesh)
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
+			[
+				ExportButton(LOCTEXT("Attach", "Export Attachment (grip)"),
+					&SBestowExportPanel::OnExportAttachment, &SBestowExportPanel::CanExportAttachment)
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
 			[
@@ -205,6 +213,46 @@ bool SBestowExportPanel::CanExportMesh() const
 	return GameLinked() && GEditor && GEditor->GetSelectedActorCount() > 0;
 }
 
+bool SBestowExportPanel::AttachedItemInfo(
+	AActor*& OutItem, USkeletalMeshComponent*& OutSkel, FName& OutSocket)
+{
+	OutItem = nullptr;
+	OutSkel = nullptr;
+	OutSocket = NAME_None;
+	if (!GEditor || GEditor->GetSelectedActorCount() != 1)
+	{
+		return false;
+	}
+	AActor* Actor = Cast<AActor>(GEditor->GetSelectedActors()->GetSelectedObject(0));
+	USceneComponent* Root = Actor ? Actor->GetRootComponent() : nullptr;
+	if (!Root)
+	{
+		return false;
+	}
+	USkeletalMeshComponent* Skel = Cast<USkeletalMeshComponent>(Root->GetAttachParent());
+	const FName Socket = Root->GetAttachSocketName();
+	if (!Skel || Socket.IsNone())
+	{
+		return false;
+	}
+	OutItem = Actor;
+	OutSkel = Skel;
+	OutSocket = Socket;
+	return true;
+}
+
+bool SBestowExportPanel::CanExportAttachment() const
+{
+	if (!GameLinked())
+	{
+		return false;
+	}
+	AActor* Item = nullptr;
+	USkeletalMeshComponent* Skel = nullptr;
+	FName Socket = NAME_None;
+	return AttachedItemInfo(Item, Skel, Socket);
+}
+
 FString SBestowExportPanel::ReadinessNote() const
 {
 	if (!GameLinked())
@@ -220,6 +268,11 @@ FString SBestowExportPanel::ReadinessNote() const
 	if (!CanExportMesh())
 	{
 		Notes += TEXT("Mesh export needs selected actors — click something in the level first. ");
+	}
+	if (!CanExportAttachment())
+	{
+		Notes += TEXT("Attachment export needs ONE item selected that's attached to a socket on the "
+					  "character's skeletal mesh — drag the item onto the character, pick a socket, nudge it. ");
 	}
 	if (Notes.IsEmpty())
 	{
@@ -304,6 +357,26 @@ FReply SBestowExportPanel::OnExportMesh()
 	}
 	ShowResult(BestowExporters::ExportMesh(
 		EditorWorld(), Selected, BestowSettings::GetGameRoot(), ExportName()));
+	return FReply::Handled();
+}
+
+FReply SBestowExportPanel::OnExportAttachment()
+{
+	AActor* Item = nullptr;
+	USkeletalMeshComponent* Skel = nullptr;
+	FName Socket = NAME_None;
+	if (!AttachedItemInfo(Item, Skel, Socket))
+	{
+		return FReply::Handled();
+	}
+	// Name after the item, not the level — the grip travels with the item.
+	FString Name = NameBox.IsValid() ? NameBox->GetText().ToString() : FString();
+	if (Name.TrimStartAndEnd().IsEmpty())
+	{
+		Name = Item->GetActorLabel();
+	}
+	ShowResult(BestowExporters::ExportAttachment(
+		Item, BestowSettings::GetGameRoot(), BestowToml::Stem(Name)));
 	return FReply::Handled();
 }
 

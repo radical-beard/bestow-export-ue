@@ -25,6 +25,13 @@ namespace BestowExporters
 	FBestowExportResult ExportMesh(UWorld* World, const TSet<AActor*>& Selected,
 		const FString& GameRoot, const FString& Name);
 
+	/// E9 — one item attached to a character socket → its mesh `.glb` (at
+	/// asset origin) + an entity snippet carrying `attach_socket` and the
+	/// grip transform (item RELATIVE TO the socket). The grip travels with
+	/// the item, so any character holds it the same way. No static collider
+	/// — the item rides the animated bone.
+	FBestowExportResult ExportAttachment(AActor* Item, const FString& GameRoot, const FString& Name);
+
 	/// E3+E6 — level layout → `scenes/<name>.scene.toml`: TargetPoints →
 	/// tag markers, point lights, camera, DirectionalLight + fog → sky
 	/// entity, any tagged actor (tag `template:<x>` instances a template).

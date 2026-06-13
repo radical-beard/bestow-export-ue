@@ -230,6 +230,38 @@ int32 UBestowSelfTestCommandlet::Main(const FString& Params)
 		}
 	}
 
+	// ── attachment grip math: item RELATIVE TO socket → bestow grip ───────
+	// The exporter computes `ItemWorld.GetRelativeTransform(SocketWorld)` and
+	// runs the result through BestowConvert. A posed skeletal mesh is awkward
+	// to synthesize headlessly, so assert the load-bearing math directly
+	// against hand-built socket/item world transforms.
+	{
+		// 1. Identity socket at the origin, item 50 cm "out" along UE +X (which
+		// maps to bestow +X) and 10 cm up UE +Z (→ bestow +Y).
+		const FTransform SocketWorld(FQuat::Identity, FVector(0, 0, 0));
+		const FTransform ItemWorld(FQuat::Identity, FVector(50, 0, 10));
+		const FTransform Grip = ItemWorld.GetRelativeTransform(SocketWorld);
+		const FVector P = BestowConvert::Pos(Grip.GetLocation());
+		Check(P.Equals(FVector(0.5, 0.1, 0.0), 1e-4),
+			TEXT("identity-socket grip converts (X,Z,Y) cm→m"), Failures);
+
+		// 2. Socket yawed +90° and the item yawed +90° in world → the item is
+		// aligned WITH the socket, so the relative rotation is identity.
+		const FTransform SocketYaw(FQuat(FVector::UpVector, HALF_PI), FVector(0, 0, 0));
+		const FTransform ItemYaw(FQuat(FVector::UpVector, HALF_PI), FVector(0, 0, 0));
+		const FTransform GripRot = ItemYaw.GetRelativeTransform(SocketYaw);
+		const FVector E = BestowConvert::EulerXYZ(GripRot.GetRotation());
+		Check(E.IsNearlyZero(1e-4),
+			TEXT("aligned item in a rotated socket has zero grip rotation"), Failures);
+
+		// 3. A pure socket-frame yaw on the item shows up as a single bestow
+		// axis rotation (sanity that rotation survives the conversion).
+		const FTransform ItemTurned(FQuat(FVector::UpVector, HALF_PI), FVector(0, 0, 0));
+		const FTransform GripTurned = ItemTurned.GetRelativeTransform(SocketWorld);
+		const FVector ET = BestowConvert::EulerXYZ(GripTurned.GetRotation());
+		Check(ET.Size() > 1.0f, TEXT("a turned grip carries a non-zero rotation"), Failures);
+	}
+
 	GEngine->DestroyWorldContext(World);
 	World->DestroyWorld(false);
 

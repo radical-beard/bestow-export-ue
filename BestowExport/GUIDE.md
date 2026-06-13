@@ -111,6 +111,7 @@ overwrite yours.
 | Button | What it exports | When it lights up |
 |---|---|---|
 | **Export Selected as Mesh (.glb)** | the selected actors as one `.glb` the game renders AND collides with (exact triangle collision) | actors are selected in the level |
+| **Export Attachment (grip)** | one weapon/mask placed on the character → its `.glb` **plus** which socket it grips and the exact grip offset, saved into the item's own file so the grip follows the item when the game swaps weapons | one item is selected that's attached to a socket on the character's skeletal mesh |
 | **Export Scene Layout** | Target Points (markers), point lights, the camera, sun + fog (as a bestow sky), actor tags → a playable `scenes/<name>.scene.toml` | always (with a game linked) |
 | **Export Animation Metadata** | **Anim Notifies** → gameplay events the game hears as `anim.event`; **Montage sections** → combo pieces (a name ending in `!` means the player can cancel out, e.g. `slash!`); **skeletal-mesh sockets** → weapon/attachment sockets | always (with a game linked) — it scans everything in your Content folder |
 | **Export Splines** | every actor with a Spline component → path files (points, tangents, and a 1 m-step baked polyline) | always (with a game linked) |
@@ -126,6 +127,37 @@ overwrite yours.
 - **Point Lights**, a **Camera Actor**, a **Directional Light** and
   **Exponential Height Fog** all come across as the matching bestow
   components. (bestow supports 8 lights — the export warns past that.)
+
+### Putting a weapon in the character's hand (or a mask on his face)
+
+This is the "give him any weapon and it always looks right" workflow.
+You do it **once per weapon/mask**, and the grip is saved into the item
+so every character holds it the same way.
+
+1. First, give the character his sockets (once): open the **character's
+   skeletal mesh**, right-click the hand bone → **Add Socket**, name it
+   (e.g. `hand_r`), repeat for a head/face socket. Press **Export
+   Animation Metadata** — that writes the character's socket list.
+2. Drag the **character** into a level (in its rest pose — no Animation
+   Blueprint previewing).
+3. Drag the **weapon** (or mask) into the level too.
+4. In the **World Outliner**, drag the weapon **onto the character** and
+   pick the **socket** (`hand_r`). Unreal snaps it to the hand.
+5. **Nudge it** with the move/rotate gizmo until the grip looks right.
+6. Select the weapon, press **Export Attachment (grip)**.
+
+That saves the weapon's `.glb` and its grip into
+`assets/models/<weapon>/<weapon>.entity.toml` with `attach_socket` and
+the offset. To use it, paste that snippet into a scene as a **child of
+the character** (set `parent` to your character's model entity). In the
+game it rides the bone through every animation. Swapping weapons at
+runtime just swaps the child — each weapon carries its own grip.
+
+```lua
+-- equip at runtime (the grip comes from the item's own transform):
+anim.attach_to_bone(weapon, character_model, "hand_r")
+-- or declare it in the scene/template:  attach_socket = "hand_r"
+```
 
 ### Playing a combo section from the game's Lua
 
@@ -152,6 +184,7 @@ The most common ones:
 | "…has no game.toml — pick the game folder itself." | You picked a folder *near* the game. Pick the folder that directly contains `game.toml`. |
 | "Terrain needs a Landscape in the level." | This level has no terrain. Make one: in the toolbar above the viewport, open the **Select Mode** dropdown and pick **Landscape**, press the green **Create** button, sculpt with a drag — then switch the dropdown back to **Select**. |
 | "Mesh export needs selected actors…" | Click the things you want in the `.glb`, then press the button. |
+| "Attachment export needs ONE item attached to a socket…" | Select exactly one weapon/mask, and make sure it's parented to a socket on the character (drag it onto the character in the Outliner and pick a socket), then nudge it. |
 | "The Landscape has no components yet — sculpt something first." | The Landscape is empty. Sculpt, then export. |
 | "Nothing to export yet: add notifies… sections… or sockets…" | Your animations have no bestow-relevant data yet. Add a notify, a montage section, or a socket. |
 
@@ -165,6 +198,7 @@ re-exports:
 |---|---|
 | Terrain | `assets/terrain/<name>/` — `<name>.hgt.png` + `.hgt.toml` (16-bit heights + placement), `<name>.ctl.png` (painted rock/grass + autoshader mask), `<name>.layer.<layer>.png` (every painted layer, lossless), `grass.png` / `rock.png` (placeholders, yours are kept), `terrain_baked.slang`, `<name>.entity.toml` (the snippet) |
 | Mesh | `assets/models/<name>/<name>.glb` + `<name>.entity.toml` (render + exact-mesh physics) |
+| Attachment | `assets/models/<name>/<name>.glb` (mesh at origin) + `<name>.entity.toml` carrying `attach_socket` + the grip transform — paste it as a child of your character |
 | Scene | `scenes/<name>.scene.toml` — play it with `scene.load("scenes/<name>.scene.toml")` |
 | Animation | `assets/anims/<clip>.fbx.anim.toml` (events + sections) and `assets/anims/<mesh>.sockets.toml` |
 | Splines | `assets/splines/<name>.spline.toml` |
@@ -184,7 +218,8 @@ UnrealEditor-Cmd YourProject.uproject -run=BestowSelfTest \
 ```
 
 Spawns a fixture level (including a real synthetic Landscape), runs the
-terrain, scene, animation, and spline exporters, and asserts the output
-— positions in meters, heights round-tripped, tags carried. (Mesh
-export needs an editor selection, so it isn't covered.) Exit code 0 on
-success.
+terrain, scene, animation, and spline exporters, asserts the output —
+positions in meters, heights round-tripped, tags carried — and checks
+the attachment grip math (item-relative-to-socket → bestow grip). (Mesh
+and attachment glb export need an editor selection, so the glb write
+itself isn't covered.) Exit code 0 on success.
